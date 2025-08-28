@@ -1,5 +1,7 @@
-
-import os, secrets, datetime as dt, json
+import os
+import secrets
+import json
+import datetime as dt
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
 
@@ -12,7 +14,10 @@ from flask_login import (
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from sqlalchemy import create_engine, select, or_, Column, Integer, String, Float, Text, DateTime, ForeignKey, Date, Boolean
+from sqlalchemy import (
+    create_engine, select, or_, Column, Integer, String, Float, Text,
+    DateTime, ForeignKey, Date, Boolean
+)
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, scoped_session
 
 # Optional KML import support
@@ -21,12 +26,12 @@ try:
 except Exception:
     etree = None
 
-# ------------- Flask & storage -------------
+# ---------------- Flask & storage ----------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "wellatlas-secret")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("DATA_DIR", BASE_DIR)  # set to /var/data on Render
+DATA_DIR = os.environ.get("DATA_DIR", BASE_DIR)  # on Render set to /var/data
 os.makedirs(DATA_DIR, exist_ok=True)
 
 DB_URL = f"sqlite:///{os.path.join(DATA_DIR, 'wellatlas.db')}"
@@ -37,7 +42,7 @@ UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "pdf", "mp4", "mov"}
 
-# ------------- Models -------------
+# ---------------- Models ----------------
 Base = declarative_base()
 
 class User(UserMixin, Base):
@@ -81,7 +86,7 @@ class Entry(Base):
     created_at = Column(DateTime, default=dt.datetime.utcnow)
     site = relationship("Site", back_populates="entries")
     user = relationship("User")
-    files = relationship("EntryFile", back_populates="entry", order_by="EntryFile.id.asc()")  # IMPORTANT
+    files = relationship("EntryFile", back_populates="entry", order_by="EntryFile.id.asc()")
 
 class EntryFile(Base):
     __tablename__ = "entry_files"
@@ -91,7 +96,7 @@ class EntryFile(Base):
     orig_name = Column(String(255), default="")
     mime = Column(String(100), default="")
     comment = Column(Text, default="")
-    entry = relationship("Entry", back_populates="files")  # IMPORTANT
+    entry = relationship("Entry", back_populates="files")
 
 class ShareLink(Base):
     __tablename__ = "share_links"
@@ -101,7 +106,7 @@ class ShareLink(Base):
     token = Column(String(64), unique=True, index=True)
     revoked = Column(Boolean, default=False)
 
-# ------------- Auth -------------
+# ---------------- Auth ----------------
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
@@ -114,7 +119,10 @@ def load_user(uid):
 def remove_session(exc=None):
     SessionLocal.remove()
 
-# ------------- Template base (inline) -------------
+def allowed(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
+
+# ---------------- Templates (inline) ----------------
 BASE_HTML = """
 <!doctype html>
 <html>
@@ -125,65 +133,63 @@ BASE_HTML = """
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
-    body {{ margin:0; font-family: Arial, sans-serif; background:#0b3d5c; color:#fff; }}
-    nav {{ background:#0b3d5c; padding:10px 16px; display:flex; gap:14px; align-items:center; position:sticky; top:0; }}
-    nav a {{ color:#fff; text-decoration:none; font-weight:bold; }}
-    .wrap {{ padding:16px; }}
-    .flash {{ background:#fff; color:#000; padding:10px; border-radius:6px; margin:12px 0; }}
-    input, select, textarea, button {{ font-size:16px; padding:8px; border-radius:6px; border:1px solid #ccc; }}
-    label {{ display:block; margin:8px 0 4px; }}
-    .card {{ background:#0e4e76; padding:12px; border-radius:8px; margin:12px 0; }}
-    .btn {{ background:#fff; color:#000; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:bold; }}
-    .btn.danger {{ background:#ffb3b3; }}
-    table {{ width:100%; border-collapse:collapse; }}
-    th, td {{ padding:8px; border-bottom:1px solid rgba(255,255,255,0.2); }}
-    .map {{ height: 420px; border-radius:8px; }}
-    .small {{ font-size: 12px; opacity: 0.9; }}
-    .right {{ float:right; }}
+    body { margin:0; font-family: Arial, sans-serif; background:#0b3d5c; color:#fff; }
+    nav { background:#0b3d5c; padding:10px 16px; display:flex; gap:14px; align-items:center; position:sticky; top:0; }
+    nav a { color:#fff; text-decoration:none; font-weight:bold; }
+    .wrap { padding:16px; }
+    .flash { background:#fff; color:#000; padding:10px; border-radius:6px; margin:12px 0; }
+    input, select, textarea, button { font-size:16px; padding:8px; border-radius:6px; border:1px solid #ccc; }
+    label { display:block; margin:8px 0 4px; }
+    .card { background:#0e4e76; padding:12px; border-radius:8px; margin:12px 0; }
+    .btn { background:#fff; color:#000; border:none; padding:8px 12px; border-radius:6px; cursor:pointer; font-weight:bold; }
+    .btn.danger { background:#ffb3b3; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:8px; border-bottom:1px solid rgba(255,255,255,0.2); }
+    .map { height: 420px; border-radius:8px; }
+    .small { font-size: 12px; opacity: 0.9; }
+    .right { float:right; }
   </style>
 </head>
 <body>
   <nav>
-    <a href="{{{{ url_for('index') }}}}">Map</a>
-    <a href="{{{{ url_for('customers') }}}}">Customers</a>
+    <a href="{{ url_for('index') }}">Map</a>
+    <a href="{{ url_for('customers') }}">Customers</a>
     {% if current_user.is_authenticated %}
-      <a href="{{{{ url_for('new_customer') }}}}">New Customer</a>
-      <a href="{{{{ url_for('new_site') }}}}">New Site</a>
-      <a href="{{{{ url_for('deleted') }}}}">Deleted</a>
-      <a href="{{{{ url_for('logout') }}}}">Logout</a>
+      <a href="{{ url_for('new_customer') }}">New Customer</a>
+      <a href="{{ url_for('new_site') }}">New Site</a>
+      <a href="{{ url_for('deleted') }}">Deleted</a>
+      <a href="{{ url_for('logout') }}">Logout</a>
     {% else %}
-      <a href="{{{{ url_for('login') }}}}">Login</a>
-      <a href="{{{{ url_for('signup') }}}}">Sign Up</a>
+      <a href="{{ url_for('login') }}">Login</a>
+      <a href="{{ url_for('signup') }}">Sign Up</a>
     {% endif %}
   </nav>
   <div class="wrap">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
-        {% for cat, msg in messages %}<div class="flash">{{{{ msg }}}}</div>{% endfor %}
+        {% for cat, msg in messages %}<div class="flash">{{ msg }}</div>{% endfor %}
       {% endif %}
     {% endwith %}
-    {{{{ body|safe }}}}
+    {{ body|safe }}
   </div>
 </body>
 </html>
 """
 
-def page(body_html):
-    return render_template_string(BASE_HTML, body=body_html)
+def page(body_html, **ctx):
+    return render_template_string(BASE_HTML, body=body_html, **ctx)
 
-def allowed(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
-
-# ------------- Health & schema -------------
+# ---------------- Health & schema ----------------
 @app.get("/health")
-def health(): return "ok", 200
+def health():
+    return "ok", 200
 
 @app.get("/admin/ensure_schema")
 def ensure_schema():
     Base.metadata.create_all(bind=engine)
     return "schema ok"
 
-# ------------- Home / Map -------------
+# ---------------- Home / Map ----------------
 @app.route("/")
 def index():
     s = SessionLocal()
@@ -193,27 +199,40 @@ def index():
         like = f"%{q}%"
         stmt = stmt.where(or_(Site.name.ilike(like), Site.job_number.ilike(like)))
     sites = s.execute(stmt).scalars().all()
-    pins = [{{"id":x.id,"name":x.name,"job":x.job_number or "","lat":x.latitude,"lng":x.longitude,"url":url_for("site_detail", site_id=x.id)}} for x in sites if x.latitude is not None and x.longitude is not None]
-    body = f"""
+
+    pins = []
+    for x in sites:
+        if x.latitude is not None and x.longitude is not None:
+            pins.append({
+                "id": x.id,
+                "name": x.name,
+                "job": x.job_number or "",
+                "lat": x.latitude,
+                "lng": x.longitude,
+                "url": url_for("site_detail", site_id=x.id),
+            })
+
+    body = render_template_string("""
       <h1>WellAtlas Map</h1>
-      <form method="get" action="{{{{ url_for('index') }}}}" style="margin:10px 0;">
-        <input name="q" placeholder="Search site or job number" value="{q}">
+      <form method="get" action="{{ url_for('index') }}" style="margin:10px 0;">
+        <input name="q" placeholder="Search site or job number" value="{{ q }}">
         <button class="btn">Search</button>
       </form>
       <div id="map" class="map"></div>
       <p class="small">Tip: Add a site and set coordinates by clicking the map, or use "Locate Me".</p>
       <script>
-        const pins = {json.dumps(pins)};
+        const pins = {{ pins_json|safe }};
         var map = L.map('map').setView([37.4, -120], 6);
-        L.tileLayer('https://tile.openstreetmap.org/{{{{z}}}}/{{{{x}}}}/{{{{y}}}}.png', {{{{ maxZoom: 19 }}}}).addTo(map);
-        pins.forEach(p => {{{{
-          L.marker([p.lat, p.lng]).addTo(map).bindPopup(`<b>${{{{p.name}}}}</b><br>Job: ${{{{p.job}}}}<br><a href="${{{{p.url}}}}">Open</a>`);
-        }}}});
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+        pins.forEach(p => {
+          L.marker([p.lat, p.lng]).addTo(map)
+            .bindPopup(`<b>${p.name}</b><br>Job: ${p.job}<br><a href="${p.url}">Open</a>`);
+        });
       </script>
-    """
+    """, q=q, pins_json=json.dumps(pins))
     return page(body)
 
-# ------------- Auth -------------
+# ---------------- Auth ----------------
 @app.route("/signup", methods=["GET","POST"])
 def signup():
     s = SessionLocal()
@@ -231,7 +250,7 @@ def signup():
                 u = User(name=name, email=email, password_hash=generate_password_hash(password))
                 s.add(u); s.commit(); login_user(u)
                 return redirect(url_for("index"))
-    body = f"""
+    body = """
     <h2>Sign Up</h2>
     <form method="post">
       <label>Name</label><input name="name" required>
@@ -253,7 +272,7 @@ def login():
             login_user(u, remember=True)
             return redirect(request.args.get("next") or url_for("index"))
         flash("Invalid email or password", "danger")
-    body = f"""
+    body = """
     <h2>Login</h2>
     <form method="post">
       <label>Email</label><input name="email" type="email" required>
@@ -268,18 +287,27 @@ def logout():
     logout_user()
     return redirect(url_for("index"))
 
-# ------------- Customers -------------
+# ---------------- Customers ----------------
 @app.get("/customers")
 @login_required
 def customers():
     s = SessionLocal()
     cs = s.execute(select(Customer).order_by(Customer.name.asc())).scalars().all()
-    rows = "".join([f"<tr><td>{c.name}</td><td><a class='btn' href='{{{{ url_for('customer_detail', customer_id={c.id}) }}}}'>Open</a></td></tr>" for c in cs])
-    body = f"""
+    body = render_template_string("""
     <h2>Customers</h2>
-    <p><a class="btn" href="{{{{ url_for('new_customer') }}}}">+ New Customer</a></p>
-    <table><tr><th>Name</th><th></th></tr>{rows or '<tr><td colspan=2>No customers yet</td></tr>'}</table>
-    """
+    <p><a class="btn" href="{{ url_for('new_customer') }}">+ New Customer</a></p>
+    <table>
+      <tr><th>Name</th><th></th></tr>
+      {% for c in cs %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td><a class="btn" href="{{ url_for('customer_detail', customer_id=c.id) }}">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="2">No customers yet</td></tr>
+      {% endfor %}
+    </table>
+    """, cs=cs)
     return page(body)
 
 @app.route("/customers/new", methods=["GET","POST"])
@@ -315,18 +343,28 @@ def customer_detail(customer_id):
     if not c:
         flash("Customer not found", "warning"); return redirect(url_for("customers"))
     sites = [x for x in c.sites if not x.deleted]
-    rows = "".join([f"<tr><td>{x.name}</td><td>{x.job_number or ''}</td><td><a class='btn' href='{{{{ url_for('site_detail', site_id={x.id}) }}}}'>Open</a></td></tr>" for x in sites])
-    body = f"""
-    <h2>Customer: {c.name}</h2>
-    <p><a class="btn" href="{{{{ url_for('new_site') }}}}">+ New Site</a></p>
-    <form method="post" action="{{{{ url_for('admin_backup_drive') }}}}" style="margin:10px 0;">
+    body = render_template_string("""
+    <h2>Customer: {{ c.name }}</h2>
+    <p><a class="btn" href="{{ url_for('new_site') }}">+ New Site</a></p>
+    <form method="post" action="{{ url_for('admin_backup_drive') }}" style="margin:10px 0;">
         <button class="btn">☁️ Backup Now to Google Drive</button>
     </form>
-    <table><tr><th>Site</th><th>Job #</th><th></th></tr>{rows or '<tr><td colspan=3>No sites</td></tr>'}</table>
-    """
+    <table>
+      <tr><th>Site</th><th>Job #</th><th></th></tr>
+      {% for x in sites %}
+        <tr>
+          <td>{{ x.name }}</td>
+          <td>{{ x.job_number or '' }}</td>
+          <td><a class="btn" href="{{ url_for('site_detail', site_id=x.id) }}">Open</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">No sites</td></tr>
+      {% endfor %}
+    </table>
+    """, c=c, sites=sites)
     return page(body)
 
-# ------------- Sites -------------
+# ---------------- Sites ----------------
 @app.route("/sites/new", methods=["GET","POST"])
 @login_required
 def new_site():
@@ -344,35 +382,50 @@ def new_site():
         if not name:
             flash("Site name required", "danger")
         else:
-            s.add(Site(name=name, job_number=job, customer_id=cid, latitude=lat, longitude=lng, address=addr, category=cat, status=stat))
+            s.add(Site(name=name, job_number=job, customer_id=cid, latitude=lat, longitude=lng,
+                       address=addr, category=cat, status=stat))
             s.commit()
             flash("Site created", "success")
             return redirect(url_for("index"))
-    opts = "".join([f"<option value='{c.id}'>{c.name}</option>" for c in customers])
-    body = f"""
+    body = render_template_string("""
     <h2>New Site</h2>
     <form method="post">
-      <label>Customer</label><select name="customer_id">{opts}</select>
+      <label>Customer</label>
+      <select name="customer_id">
+        {% for c in customers %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+
       <label>Site Name</label><input name="name" required>
       <label>Job #</label><input name="job_number">
       <label>Latitude</label><input name="latitude" id="lat" required>
       <label>Longitude</label><input name="longitude" id="lng" required>
+
       <div id="pickmap" class="map" style="margin:10px 0;"></div>
       <button type="button" class="btn" onclick="locateMe()">📍 Locate Me</button>
+
       <label>Address</label><input name="address">
       <label>Category</label><input name="category">
       <label>Status</label><input name="status">
+
       <div style="margin-top:10px"><button class="btn">Save</button></div>
     </form>
+
     <script>
       var map = L.map('pickmap').setView([37.4, -120], 6);
-      L.tileLayer('https://tile.openstreetmap.org/{{{{z}}}}/{{{{x}}}}/{{{{y}}}}.png', {{{{maxZoom:19}}}}).addTo(map);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
       var m=null;
-      function setMarker(lat,lng){{ if(m) map.removeLayer(m); m=L.marker([lat,lng]).addTo(map); document.getElementById('lat').value=lat; document.getElementById('lng').value=lng; }}
+      function setMarker(lat,lng){ if(m) map.removeLayer(m); m=L.marker([lat,lng]).addTo(map);
+        document.getElementById('lat').value=lat; document.getElementById('lng').value=lng; }
       map.on('click', e => setMarker(e.latlng.lat.toFixed(6), e.latlng.lng.toFixed(6)));
-      function locateMe(){{ if(navigator.geolocation){{ navigator.geolocation.getCurrentPosition(p=>{{ setMarker(p.coords.latitude.toFixed(6), p.coords.longitude.toFixed(6)); map.setView([p.coords.latitude,p.coords.longitude], 15); }}); }} }}
+      function locateMe(){ if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(p=>{
+          setMarker(p.coords.latitude.toFixed(6), p.coords.longitude.toFixed(6));
+          map.setView([p.coords.latitude,p.coords.longitude], 15);
+        }); } }
     </script>
-    """
+    """, customers=customers)
     return page(body)
 
 @app.get("/sites/<int:site_id>")
@@ -382,40 +435,29 @@ def site_detail(site_id):
     site = s.get(Site, site_id)
     if not site or site.deleted:
         flash("Site not found", "warning"); return redirect(url_for("index"))
-    # entries grouped by day
-    groups = {{}}
+
+    # group entries by date
+    groups = {}
     for e in site.entries:
         d = e.created_at.date().isoformat()
         groups.setdefault(d, []).append(e)
     for d in list(groups.keys()):
         groups[d].sort(key=lambda x: x.created_at, reverse=True)
-    def file_row(f):
-        return f"<li><a href='{{{{ url_for('uploaded_file', filename=f.filename) }}}}' target='_blank'>{f.orig_name}</a> " \
-               f"<form method='post' action='{{{{ url_for('save_file_comment', file_id=f.id) }}}}' style='display:inline' onsubmit='return saveComment(event, {f.id})'>" \
-               f"<input name='comment' value=\\\"{(f.comment or '').replace('\"','&quot;')}\\\"><button class='btn'>Save</button></form></li>"
-    html_groups = ""
-    for d, items in sorted(groups.items(), reverse=True):
-        rows = ""
-        for e in items:
-            files_html = "<ul>" + "".join(file_row(f) for f in e.files) + "</ul>" if e.files else "<i>No files</i>"
-            rows += f"<div class='card'><div><b>{e.type}</b> — {e.created_at.strftime('%Y-%m-%d %H:%M:%S')}</div><div>{e.note or ''}</div>{files_html}</div>"
-        html_groups += f"<h3>{d}</h3>{rows or '<i>No entries</i>'}"
-    share_day_form = f"""
-      <form method="post" action="{{{{ url_for('create_share_day', site_id=site.id) }}}}" style="margin-top:8px">
-        <label>Share a specific day</label>
-        <input type="date" name="date" required>
-        <button class="btn">Create Day Link</button>
-      </form>
-    """
-    body = f"""
-    <h2>{site.name} <span class="small">({site.job_number or ''})</span></h2>
-    <form class="right" method="post" action="{{{{ url_for('delete_site', site_id=site.id) }}}}" onsubmit="return confirm('Move this site to Deleted?')">
+
+    body = render_template_string("""
+    <h2>{{ site.name }} <span class="small">({{ site.job_number or '' }})</span></h2>
+
+    <form class="right" method="post" action="{{ url_for('delete_site', site_id=site.id) }}"
+          onsubmit="return confirm('Move this site to Deleted?')">
       <button class="btn danger">Delete Site</button>
     </form>
-    <p>Customer: {site.customer.name if site.customer else '—'}<br>Lat/Lng: {site.latitude}, {site.longitude}</p>
+
+    <p>Customer: {{ site.customer.name if site.customer else '—' }}<br>
+       Lat/Lng: {{ site.latitude }}, {{ site.longitude }}</p>
+
     <div class="card">
       <h3>Add Entry</h3>
-      <form method="post" action="{{{{ url_for('add_entry', site_id=site.id) }}}}" enctype="multipart/form-data">
+      <form method="post" action="{{ url_for('add_entry', site_id=site.id) }}" enctype="multipart/form-data">
         <label>Type</label>
         <select name="type">
           <option value="general">General</option>
@@ -430,20 +472,57 @@ def site_detail(site_id):
         <label>Files (you can select multiple)</label><input type="file" name="files" multiple>
         <div style="margin-top:10px"><button class="btn">Add</button></div>
       </form>
-      <form method="post" action="{{{{ url_for('create_share_site', site_id=site.id) }}}}" style="margin-top:10px">
+
+      <form method="post" action="{{ url_for('create_share_site', site_id=site.id) }}" style="margin-top:10px">
         <button class="btn">Create Public Link (Whole Site)</button>
       </form>
-      {share_day_form}
+
+      <form method="post" action="{{ url_for('create_share_day', site_id=site.id) }}" style="margin-top:8px">
+        <label>Share a specific day</label>
+        <input type="date" name="date" required>
+        <button class="btn">Create Day Link</button>
+      </form>
     </div>
+
     <h3>Timeline</h3>
-    {html_groups}
+    {% for d, items in groups|dictsort(reverse=True) %}
+      <h3>{{ d }}</h3>
+      {% for e in items %}
+        <div class="card">
+          <div><b>{{ e.type }}</b> — {{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+          <div>{{ e.note or '' }}</div>
+          {% if e.files %}
+            <ul>
+              {% for f in e.files %}
+                <li>
+                  <a href="{{ url_for('uploaded_file', filename=f.filename) }}" target="_blank">{{ f.orig_name }}</a>
+                  <form method="post" action="{{ url_for('save_file_comment', file_id=f.id) }}" style="display:inline" onsubmit="return saveComment(event, {{ f.id }})">
+                    <input name="comment" value="{{ (f.comment or '') }}">
+                    <button class="btn">Save</button>
+                  </form>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <i>No files</i>
+          {% endif %}
+        </div>
+      {% else %}
+        <i>No entries</i>
+      {% endfor %}
+    {% endfor %}
+
     <script>
-      async function saveComment(ev, fid){{ ev.preventDefault(); const form = ev.target;
+      async function saveComment(ev, fid){
+        ev.preventDefault();
+        const form = ev.target;
         const data = new FormData(form);
-        const r = await fetch(form.action, {{method:'POST', body:data}});
-        if(r.ok) alert('Saved'); else alert('Failed'); return false; }}
+        const r = await fetch(form.action, {method:'POST', body:data});
+        if(r.ok) alert('Saved'); else alert('Failed');
+        return false;
+      }
     </script>
-    """
+    """, site=site, groups=groups)
     return page(body)
 
 @app.post("/sites/<int:site_id>/delete")
@@ -464,11 +543,25 @@ def delete_site(site_id):
 def deleted():
     s = SessionLocal()
     sites = s.execute(select(Site).where(Site.deleted==1)).scalars().all()
-    rows = "".join([f"<tr><td>{x.name}</td><td>{x.job_number or ''}</td><td><form method='post' action='{{{{ url_for('restore_site', site_id={x.id}) }}}}'><button class='btn'>Restore</button></form></td></tr>" for x in sites])
-    body = f"""
+    body = render_template_string("""
     <h2>Deleted Sites</h2>
-    <table><tr><th>Site</th><th>Job #</th><th></th></tr>{rows or '<tr><td colspan=3>None</td></tr>'}</table>
-    """
+    <table>
+      <tr><th>Site</th><th>Job #</th><th></th></tr>
+      {% for x in sites %}
+        <tr>
+          <td>{{ x.name }}</td>
+          <td>{{ x.job_number or '' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('restore_site', site_id=x.id) }}">
+              <button class="btn">Restore</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">None</td></tr>
+      {% endfor %}
+    </table>
+    """, sites=sites)
     return page(body)
 
 @app.post("/sites/<int:site_id>/restore")
@@ -477,10 +570,13 @@ def restore_site(site_id):
     s = SessionLocal()
     site = s.get(Site, site_id)
     if site and site.deleted:
-        site.deleted = 0; site.deleted_at = None; s.commit(); flash("Restored", "success")
+        site.deleted = 0
+        site.deleted_at = None
+        s.commit()
+        flash("Restored", "success")
     return redirect(url_for("deleted"))
 
-# ------------- Entries -------------
+# ---------------- Entries ----------------
 @app.post("/sites/<int:site_id>/entries")
 @login_required
 def add_entry(site_id):
@@ -508,18 +604,18 @@ def add_entry(site_id):
 def save_file_comment(file_id):
     s = SessionLocal()
     ef = s.get(EntryFile, file_id)
-    if not ef: return jsonify({{"ok":False}}), 404
+    if not ef: return jsonify({"ok":False}), 404
     ef.comment = request.form.get("comment","")
     s.commit()
-    return jsonify({{"ok":True}})
+    return jsonify({"ok":True})
 
-# ------------- Uploads -------------
+# ---------------- Uploads ----------------
 @app.get("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
 
-# ------------- Public sharing -------------
+# ---------------- Public sharing ----------------
 def get_or_create_share(site, share_date=None, sdb=None):
     db = sdb or SessionLocal()
     q = select(ShareLink).where(ShareLink.site_id==site.id, ShareLink.revoked==False)
@@ -545,7 +641,7 @@ def create_share_site(site_id):
     db = SessionLocal()
     site = db.get(Site, site_id) or abort(404)
     sl = get_or_create_share(site, None, db)
-    url = url_for('public_share_site', site_id=site_id, _external=True) + f"?token={{sl.token}}"
+    url = url_for('public_share_site', site_id=site_id, _external=True) + f"?token={sl.token}"
     flash(f"Public link created: {url}", "success")
     return redirect(url_for("site_detail", site_id=site_id))
 
@@ -559,7 +655,7 @@ def create_share_day(site_id):
     except Exception:
         flash("Invalid date", "danger"); return redirect(url_for("site_detail", site_id=site_id))
     sl = get_or_create_share(site, d, db)
-    url = url_for('public_share_day', site_id=site_id, date_str=d.isoformat(), _external=True) + f"?token={{sl.token}}"
+    url = url_for('public_share_day', site_id=site_id, date_str=d.isoformat(), _external=True) + f"?token={sl.token}"
     flash(f"Public day link created: {url}", "success")
     return redirect(url_for("site_detail", site_id=site_id))
 
@@ -571,20 +667,37 @@ def public_share_site(site_id):
     if not sl: abort(403)
     site = db.get(Site, site_id)
     if not site or site.deleted: abort(404)
-    entries = site.entries
-    groups = {{}}
-    for e in entries:
+
+    groups = {}
+    for e in site.entries:
         d = e.created_at.date().isoformat()
         groups.setdefault(d, []).append(e)
-    for k in list(groups.keys()): groups[k].sort(key=lambda x: x.created_at, reverse=True)
-    html = ""
-    for d, items in sorted(groups.items(), reverse=True):
-        rows = ""
-        for e in items:
-            files_html = "<ul>" + "".join([f"<li><a href='{{{{ url_for('share_file', token=token, file_id={f.id}) }}}}' target='_blank'>{f.orig_name}</a></li>" for f in e.files]) + "</ul>" if e.files else "<i>No files</i>"
-            rows += f"<div class='card'><div><b>{e.type}</b> — {e.created_at.strftime('%Y-%m-%d %H:%M:%S')}</div><div>{e.note or ''}</div>{files_html}</div>"
-        html += f"<h3>{d}</h3>{rows or '<i>No entries</i>'}"
-    body = f"<h2>Shared: {site.name}</h2>{html}"
+    for k in list(groups.keys()):
+        groups[k].sort(key=lambda x: x.created_at, reverse=True)
+
+    body = render_template_string("""
+    <h2>Shared: {{ site.name }}</h2>
+    {% for d, items in groups|dictsort(reverse=True) %}
+      <h3>{{ d }}</h3>
+      {% for e in items %}
+        <div class="card">
+          <div><b>{{ e.type }}</b> — {{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+          <div>{{ e.note or '' }}</div>
+          {% if e.files %}
+            <ul>
+              {% for f in e.files %}
+                <li><a href="{{ url_for('share_file', token=token, file_id=f.id) }}" target="_blank">{{ f.orig_name }}</a></li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <i>No files</i>
+          {% endif %}
+        </div>
+      {% else %}
+        <i>No entries</i>
+      {% endfor %}
+    {% endfor %}
+    """, site=site, groups=groups, token=token)
     return page(body)
 
 @app.get("/share/site/<int:site_id>/day/<date_str>")
@@ -599,12 +712,28 @@ def public_share_day(site_id, date_str):
     if not sl: abort(403)
     site = db.get(Site, site_id)
     if not site or site.deleted: abort(404)
+
     entries = [e for e in site.entries if e.created_at.date()==d]
-    rows = ""
-    for e in sorted(entries, key=lambda x: x.created_at, reverse=True):
-        files_html = "<ul>" + "".join([f"<li><a href='{{{{ url_for('share_file', token=token, file_id={f.id}) }}}}' target='_blank'>{f.orig_name}</a></li>" for f in e.files]) + "</ul>" if e.files else "<i>No files</i>"
-        rows += f"<div class='card'><div><b>{e.type}</b> — {e.created_at.strftime('%Y-%m-%d %H:%M:%S')}</div><div>{e.note or ''}</div>{files_html}</div>"
-    body = f"<h2>Shared: {site.name} — {d.isoformat()}</h2>{rows or '<i>No entries</i>'}"
+    body = render_template_string("""
+    <h2>Shared: {{ site.name }} — {{ d.isoformat() }}</h2>
+    {% for e in entries|sort(attribute='created_at', reverse=True) %}
+      <div class="card">
+        <div><b>{{ e.type }}</b> — {{ e.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+        <div>{{ e.note or '' }}</div>
+        {% if e.files %}
+          <ul>
+            {% for f in e.files %}
+              <li><a href="{{ url_for('share_file', token=token, file_id=f.id) }}" target="_blank">{{ f.orig_name }}</a></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <i>No files</i>
+        {% endif %}
+      </div>
+    {% else %}
+      <i>No entries</i>
+    {% endfor %}
+    """, site=site, entries=entries, d=d, token=token)
     return page(body)
 
 @app.get("/share/file/<token>/<int:file_id>")
@@ -612,15 +741,21 @@ def share_file(token, file_id):
     db = SessionLocal()
     ef = db.get(EntryFile, file_id) or abort(404)
     entry = db.get(Entry, ef.entry_id) or abort(404)
-    sl = db.execute(select(ShareLink).where(ShareLink.token==token, ShareLink.site_id==entry.site_id, ShareLink.revoked==False)).scalar_one_or_none()
+    sl = db.execute(
+        select(ShareLink).where(
+            ShareLink.token==token,
+            ShareLink.site_id==entry.site_id,
+            ShareLink.revoked==False
+        )
+    ).scalar_one_or_none()
     if not sl: abort(403)
     if sl.date is not None and entry.created_at.date()!=sl.date: abort(403)
     return send_from_directory(UPLOAD_DIR, ef.filename, as_attachment=False)
 
-# ------------- Backup: ZIP (download) -------------
-def make_backup_zip_path():
-    mem_path = os.path.join(DATA_DIR, f"wellatlas-backup-{dt.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip")
-    with ZipFile(mem_path, "w", ZIP_DEFLATED) as z:
+# ---------------- Backup: local zip download ----------------
+def build_backup_zip_bytes():
+    mem = BytesIO()
+    with ZipFile(mem, "w", ZIP_DEFLATED) as z:
         db_path = os.path.join(DATA_DIR, "wellatlas.db")
         if os.path.exists(db_path):
             z.write(db_path, arcname="wellatlas.db")
@@ -629,15 +764,68 @@ def make_backup_zip_path():
                 p = os.path.join(rootdir, name)
                 arc = os.path.relpath(p, DATA_DIR)
                 z.write(p, arcname=arc)
-    return mem_path
+    mem.seek(0)
+    return mem
 
 @app.get("/admin/backup_download")
 @login_required
 def admin_backup_download():
-    zpath = make_backup_zip_path()
-    return send_file(zpath, as_attachment=True, download_name=os.path.basename(zpath), mimetype="application/zip")
+    mem = build_backup_zip_bytes()
+    fname = f"wellatlas-backup-{dt.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip"
+    return send_file(mem, as_attachment=True, download_name=fname, mimetype="application/zip")
 
-# ------------- KML/KMZ Import (optional) -------------
+# ---------------- Backup: Google Drive (optional) ----------------
+def _secret_file_path(name: str) -> str:
+    """Return absolute path to a Render Secret File by name."""
+    if os.path.isabs(name) and os.path.exists(name):
+        return name
+    candidate = f"/etc/secrets/{name}"
+    if os.path.exists(candidate):
+        return candidate
+    # fallback to local dir (dev)
+    candidate = os.path.join(BASE_DIR, name)
+    return candidate
+
+@app.post("/admin/backup_drive")
+@login_required
+def admin_backup_drive():
+    folder_id = os.environ.get("GDRIVE_FOLDER_ID", "").strip()
+    svc_name = os.environ.get("GDRIVE_SERVICE_JSON", "").strip()
+    if not folder_id or not svc_name:
+        flash("Google Drive not configured. Set GDRIVE_FOLDER_ID and GDRIVE_SERVICE_JSON.", "warning")
+        return redirect(request.referrer or url_for("customers"))
+
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaInMemoryUpload
+    except Exception as e:
+        flash(f"Google libs missing: {e}", "danger")
+        return redirect(request.referrer or url_for("customers"))
+
+    svc_path = _secret_file_path(svc_name)
+    if not os.path.exists(svc_path):
+        flash(f"Service JSON not found at {svc_path}", "danger")
+        return redirect(request.referrer or url_for("customers"))
+
+    try:
+        creds = service_account.Credentials.from_service_account_file(
+            svc_path,
+            scopes=["https://www.googleapis.com/auth/drive.file"]
+        )
+        drive = build("drive", "v3", credentials=creds)
+        data = build_backup_zip_bytes().read()
+        fname = f"wellatlas-backup-{dt.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip"
+        media = MediaInMemoryUpload(data, mimetype="application/zip", resumable=False)
+        file_meta = {"name": fname, "parents": [folder_id]}
+        drive.files().create(body=file_meta, media_body=media, fields="id").execute()
+        flash("Backup uploaded to Google Drive.", "success")
+    except Exception as e:
+        flash(f"Drive backup failed: {e}", "danger")
+
+    return redirect(request.referrer or url_for("customers"))
+
+# ---------------- KML/KMZ Import (optional) ----------------
 @app.route("/import", methods=["GET","POST"])
 @login_required
 def import_kml():
@@ -680,7 +868,7 @@ def import_kml():
             return redirect(url_for("index"))
         except Exception as e:
             flash(f"Import failed: {e}", "danger")
-    body = f"""
+    body = """
     <h2>Import KML/KMZ</h2>
     <form method="post" enctype="multipart/form-data">
       <label>Customer name to import into</label><input name="customer" value="Imported">
@@ -690,15 +878,18 @@ def import_kml():
     """
     return page(body)
 
-# ------------- API -------------
+# ---------------- API ----------------
 @app.get("/api/customers/<int:cust_id>/sites")
 @login_required
 def api_sites_for_customer(cust_id):
     s = SessionLocal()
-    sites = s.execute(select(Site).where(Site.customer_id==cust_id, Site.deleted==0).order_by(Site.name.asc())).scalars().all()
-    return jsonify([{{"id":x.id, "name":x.name}} for x in sites])
+    sites = s.execute(
+        select(Site).where(Site.customer_id==cust_id, Site.deleted==0).order_by(Site.name.asc())
+    ).scalars().all()
+    return jsonify([{"id":x.id, "name":x.name} for x in sites])
 
-# ------------- Run local -------------
+# ---------------- Run local ----------------
 if __name__ == "__main__":
     Base.metadata.create_all(bind=engine)
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))  # works on Replit/Render
+    app.run(debug=True, host="0.0.0.0", port=port)
