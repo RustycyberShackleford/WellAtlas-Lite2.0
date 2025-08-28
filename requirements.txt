@@ -1,6 +1,6 @@
 Flask==3.0.3
-SQLAlchemy==2.0.32
 Flask-Login==0.6.3
+SQLAlchemy==2.0.32
 Werkzeug==3.0.4
 gunicorn==21.2.0
 lxml==5.2.2
