@@ -915,4 +915,6 @@ def _diag():
 def ensure_schema():
     Base.metadata.create_all(bind=engine)
     return "schema ok"
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
 
