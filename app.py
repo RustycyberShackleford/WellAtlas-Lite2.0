@@ -893,3 +893,14 @@ if __name__ == "__main__":
     Base.metadata.create_all(bind=engine)
     port = int(os.environ.get("PORT", 5000))  # works on Replit/Render
     app.run(debug=True, host="0.0.0.0", port=port)
+
+@app.get("/_diag")
+def _diag():
+    return {
+        "DATA_DIR_env": os.environ.get("DATA_DIR"),
+        "DATA_DIR_used": DATA_DIR,
+        "BASE_DIR": BASE_DIR,
+        "exists": os.path.exists(DATA_DIR),
+        "writable": os.access(DATA_DIR, os.W_OK),
+    }, 200
+
