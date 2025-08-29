@@ -39,6 +39,7 @@ engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 
 # --- ensure DB schema exists even under Gunicorn ---
+@app.before_first_request
 def _init_db_once():
     try:
         Base.metadata.create_all(bind=engine)
@@ -112,13 +113,6 @@ class ShareLink(Base):
     date = Column(Date, nullable=True, index=True)  # None = whole site
     token = Column(String(64), unique=True, index=True)
     revoked = Column(Boolean, default=False)
-
-# --- CREATE DB TABLES NOW (safe under Gunicorn & Flask 3) ---
-try:
-    Base.metadata.create_all(bind=engine)
-except Exception as e:
-    # use print instead of app.logger in case app isn't fully ready yet
-    print(f"[schema init] failed: {e}")
 
 # ---------------- Auth ----------------
 login_manager = LoginManager(app)
@@ -966,9 +960,6 @@ def _diag():
         "writable": os.access(DATA_DIR, os.W_OK),
     }, 200
 
-@app.get("/health")
-def _health():
-    return "ok", 200
 # 5) Local run (Render ignores this, but good for dev)
 if __name__ == "__main__":
     # Make sure schema exists for local runs too
@@ -979,9 +970,4 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
-
-@app.get("/health")
-def _health():
-    return "ok", 200
-
 
