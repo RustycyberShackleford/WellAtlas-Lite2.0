@@ -39,7 +39,6 @@ engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 
 # --- ensure DB schema exists even under Gunicorn ---
-@app.before_first_request
 def _init_db_once():
     try:
         Base.metadata.create_all(bind=engine)
