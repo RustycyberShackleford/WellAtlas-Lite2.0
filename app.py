@@ -38,6 +38,14 @@ DB_URL = f"sqlite:///{os.path.join(DATA_DIR, 'wellatlas.db')}"
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 
+# --- ensure DB schema exists even under Gunicorn ---
+@app.before_first_request
+def _init_db_once():
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        app.logger.exception(f"DB init failed: {e}")
+
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "pdf", "mp4", "mov"}
@@ -903,4 +911,8 @@ def _diag():
         "exists": os.path.exists(DATA_DIR),
         "writable": os.access(DATA_DIR, os.W_OK),
     }, 200
+@app.get("/admin/ensure_schema")
+def ensure_schema():
+    Base.metadata.create_all(bind=engine)
+    return "schema ok"
 
