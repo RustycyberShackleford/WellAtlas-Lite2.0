@@ -113,6 +113,13 @@ class ShareLink(Base):
     token = Column(String(64), unique=True, index=True)
     revoked = Column(Boolean, default=False)
 
+# --- CREATE DB TABLES NOW (safe under Gunicorn & Flask 3) ---
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    # use print instead of app.logger in case app isn't fully ready yet
+    print(f"[schema init] failed: {e}")
+
 # ---------------- Auth ----------------
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -969,3 +976,5 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
+
+
