@@ -938,12 +938,16 @@ def ensure_schema():
         return f"schema error: {e}", 500
 
 # 3) Auto-create schema when the first request hits (works under Gunicorn)
-@app.before_first_request
+# --- ensure DB schema exists even under Gunicorn ---
 def _init_db_once():
     try:
         Base.metadata.create_all(bind=engine)
     except Exception as e:
-        app.logger.exception("DB init failed at first request")
+        app.logger.error(f"DB init failed: {e}")
+
+# Call immediately at startup
+_init_db_once()
+
 
 # 4) Tiny diagnostics (optional; helpful to verify DATA_DIR is writable)
 @app.get("/_diag")
