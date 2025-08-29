@@ -918,3 +918,51 @@ def ensure_schema():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
 
+# =========================
+# STABLE FOOTER — paste at end of app.py
+# =========================
+
+# 1) Health check (Render will show 200 if app is alive)
+@app.get("/health")
+def _health():
+    return "ok", 200
+
+# 2) Manual schema creator (visit once if needed)
+@app.get("/admin/ensure_schema")
+def ensure_schema():
+    try:
+        Base.metadata.create_all(bind=engine)
+        return "schema ok", 200
+    except Exception as e:
+        app.logger.exception("Schema creation failed")
+        return f"schema error: {e}", 500
+
+# 3) Auto-create schema when the first request hits (works under Gunicorn)
+@app.before_first_request
+def _init_db_once():
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        app.logger.exception("DB init failed at first request")
+
+# 4) Tiny diagnostics (optional; helpful to verify DATA_DIR is writable)
+@app.get("/_diag")
+def _diag():
+    import os
+    return {
+        "DATA_DIR_env": os.environ.get("DATA_DIR"),
+        "DATA_DIR_used": DATA_DIR,
+        "exists": os.path.exists(DATA_DIR),
+        "writable": os.access(DATA_DIR, os.W_OK),
+    }, 200
+
+# 5) Local run (Render ignores this, but good for dev)
+if __name__ == "__main__":
+    # Make sure schema exists for local runs too
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        app.logger.exception("Local schema creation failed")
+
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
