@@ -966,6 +966,9 @@ def _diag():
         "writable": os.access(DATA_DIR, os.W_OK),
     }, 200
 
+@app.get("/health")
+def _health():
+    return "ok", 200
 # 5) Local run (Render ignores this, but good for dev)
 if __name__ == "__main__":
     # Make sure schema exists for local runs too
