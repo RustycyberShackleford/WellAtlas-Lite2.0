@@ -1,6 +1,6 @@
 import os
-import secrets
 import json
+import secrets
 import datetime as dt
 from io import BytesIO
 from zipfile import ZipFile, ZIP_DEFLATED
@@ -20,37 +20,25 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, scoped_session
 
-# Optional KML import support
-try:
-    from lxml import etree
-except Exception:
-    etree = None
 
-# ---------------- Flask & storage ----------------
+# -------------------- Flask & storage --------------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "wellatlas-secret")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.environ.get("DATA_DIR", BASE_DIR)  # on Render set to /var/data
+DATA_DIR = os.environ.get("DATA_DIR", "./data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 DB_URL = f"sqlite:///{os.path.join(DATA_DIR, 'wellatlas.db')}"
 engine = create_engine(DB_URL, connect_args={"check_same_thread": False})
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False))
 
-# --- ensure DB schema exists even under Gunicorn ---
-@app.before_first_request
-def _init_db_once():
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        app.logger.exception(f"DB init failed: {e}")
-
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_EXT = {"png", "jpg", "jpeg", "gif", "pdf", "mp4", "mov"}
 
-# ---------------- Models ----------------
+
+# -------------------- Models --------------------
 Base = declarative_base()
 
 class User(UserMixin, Base):
@@ -114,13 +102,15 @@ class ShareLink(Base):
     token = Column(String(64), unique=True, index=True)
     revoked = Column(Boolean, default=False)
 
-# --- ensure DB schema exists safely under Flask 3 / Gunicorn ---
+
+# --- CREATE DB TABLES NOW (safe under Flask 3 + Gunicorn) ---
 try:
     Base.metadata.create_all(bind=engine)
 except Exception as e:
     print(f"[schema init] failed: {e}")
 
-# ---------------- Auth ----------------
+
+# -------------------- Auth setup --------------------
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
@@ -133,10 +123,13 @@ def load_user(uid):
 def remove_session(exc=None):
     SessionLocal.remove()
 
+
+# -------------------- Helpers --------------------
 def allowed(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
 
-# ---------------- Templates (inline) ----------------
+
+# -------------------- Base layout --------------------
 BASE_HTML = """
 <!doctype html>
 <html>
@@ -193,17 +186,23 @@ BASE_HTML = """
 def page(body_html, **ctx):
     return render_template_string(BASE_HTML, body=body_html, **ctx)
 
-# ---------------- Health & schema ----------------
+
+# -------------------- Health & schema --------------------
 @app.get("/health")
-def health():
+def _health():
     return "ok", 200
 
 @app.get("/admin/ensure_schema")
 def ensure_schema():
-    Base.metadata.create_all(bind=engine)
-    return "schema ok"
+    try:
+        Base.metadata.create_all(bind=engine)
+        return "schema ok", 200
+    except Exception as e:
+        app.logger.exception("Schema creation failed")
+        return f"schema error: {e}", 500
 
-# ---------------- Home / Map ----------------
+
+# -------------------- Home / Map --------------------
 @app.route("/")
 def index():
     s = SessionLocal()
@@ -218,11 +217,9 @@ def index():
     for x in sites:
         if x.latitude is not None and x.longitude is not None:
             pins.append({
-                "id": x.id,
-                "name": x.name,
+                "id": x.id, "name": x.name,
                 "job": x.job_number or "",
-                "lat": x.latitude,
-                "lng": x.longitude,
+                "lat": x.latitude, "lng": x.longitude,
                 "url": url_for("site_detail", site_id=x.id),
             })
 
@@ -246,7 +243,8 @@ def index():
     """, q=q, pins_json=json.dumps(pins))
     return page(body)
 
-# ---------------- Auth ----------------
+
+# -------------------- Auth --------------------
 @app.route("/signup", methods=["GET","POST"])
 def signup():
     s = SessionLocal()
@@ -301,7 +299,8 @@ def logout():
     logout_user()
     return redirect(url_for("index"))
 
-# ---------------- Customers ----------------
+
+# -------------------- Customers --------------------
 @app.get("/customers")
 @login_required
 def customers():
@@ -360,9 +359,6 @@ def customer_detail(customer_id):
     body = render_template_string("""
     <h2>Customer: {{ c.name }}</h2>
     <p><a class="btn" href="{{ url_for('new_site') }}">+ New Site</a></p>
-    <form method="post" action="{{ url_for('admin_backup_drive') }}" style="margin:10px 0;">
-        <button class="btn">☁️ Backup Now to Google Drive</button>
-    </form>
     <table>
       <tr><th>Site</th><th>Job #</th><th></th></tr>
       {% for x in sites %}
@@ -378,7 +374,8 @@ def customer_detail(customer_id):
     """, c=c, sites=sites)
     return page(body)
 
-# ---------------- Sites ----------------
+
+# -------------------- Sites --------------------
 @app.route("/sites/new", methods=["GET","POST"])
 @login_required
 def new_site():
@@ -590,7 +587,8 @@ def restore_site(site_id):
         flash("Restored", "success")
     return redirect(url_for("deleted"))
 
-# ---------------- Entries ----------------
+
+# -------------------- Entries & files --------------------
 @app.post("/sites/<int:site_id>/entries")
 @login_required
 def add_entry(site_id):
@@ -623,13 +621,13 @@ def save_file_comment(file_id):
     s.commit()
     return jsonify({"ok":True})
 
-# ---------------- Uploads ----------------
 @app.get("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
 
-# ---------------- Public sharing ----------------
+
+# -------------------- Public sharing --------------------
 def get_or_create_share(site, share_date=None, sdb=None):
     db = sdb or SessionLocal()
     q = select(ShareLink).where(ShareLink.site_id==site.id, ShareLink.revoked==False)
@@ -766,214 +764,13 @@ def share_file(token, file_id):
     if sl.date is not None and entry.created_at.date()!=sl.date: abort(403)
     return send_from_directory(UPLOAD_DIR, ef.filename, as_attachment=False)
 
-# ---------------- Backup: local zip download ----------------
-def build_backup_zip_bytes():
-    mem = BytesIO()
-    with ZipFile(mem, "w", ZIP_DEFLATED) as z:
-        db_path = os.path.join(DATA_DIR, "wellatlas.db")
-        if os.path.exists(db_path):
-            z.write(db_path, arcname="wellatlas.db")
-        for rootdir, _, files in os.walk(UPLOAD_DIR):
-            for name in files:
-                p = os.path.join(rootdir, name)
-                arc = os.path.relpath(p, DATA_DIR)
-                z.write(p, arcname=arc)
-    mem.seek(0)
-    return mem
 
-@app.get("/admin/backup_download")
-@login_required
-def admin_backup_download():
-    mem = build_backup_zip_bytes()
-    fname = f"wellatlas-backup-{dt.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip"
-    return send_file(mem, as_attachment=True, download_name=fname, mimetype="application/zip")
-
-# ---------------- Backup: Google Drive (optional) ----------------
-def _secret_file_path(name: str) -> str:
-    """Return absolute path to a Render Secret File by name."""
-    if os.path.isabs(name) and os.path.exists(name):
-        return name
-    candidate = f"/etc/secrets/{name}"
-    if os.path.exists(candidate):
-        return candidate
-    # fallback to local dir (dev)
-    candidate = os.path.join(BASE_DIR, name)
-    return candidate
-
-@app.post("/admin/backup_drive")
-@login_required
-def admin_backup_drive():
-    folder_id = os.environ.get("GDRIVE_FOLDER_ID", "").strip()
-    svc_name = os.environ.get("GDRIVE_SERVICE_JSON", "").strip()
-    if not folder_id or not svc_name:
-        flash("Google Drive not configured. Set GDRIVE_FOLDER_ID and GDRIVE_SERVICE_JSON.", "warning")
-        return redirect(request.referrer or url_for("customers"))
-
-    try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaInMemoryUpload
-    except Exception as e:
-        flash(f"Google libs missing: {e}", "danger")
-        return redirect(request.referrer or url_for("customers"))
-
-    svc_path = _secret_file_path(svc_name)
-    if not os.path.exists(svc_path):
-        flash(f"Service JSON not found at {svc_path}", "danger")
-        return redirect(request.referrer or url_for("customers"))
-
-    try:
-        creds = service_account.Credentials.from_service_account_file(
-            svc_path,
-            scopes=["https://www.googleapis.com/auth/drive.file"]
-        )
-        drive = build("drive", "v3", credentials=creds)
-        data = build_backup_zip_bytes().read()
-        fname = f"wellatlas-backup-{dt.datetime.utcnow().strftime('%Y%m%d-%H%M%S')}.zip"
-        media = MediaInMemoryUpload(data, mimetype="application/zip", resumable=False)
-        file_meta = {"name": fname, "parents": [folder_id]}
-        drive.files().create(body=file_meta, media_body=media, fields="id").execute()
-        flash("Backup uploaded to Google Drive.", "success")
-    except Exception as e:
-        flash(f"Drive backup failed: {e}", "danger")
-
-    return redirect(request.referrer or url_for("customers"))
-
-# ---------------- KML/KMZ Import (optional) ----------------
-@app.route("/import", methods=["GET","POST"])
-@login_required
-def import_kml():
-    if etree is None:
-        flash("KML import requires lxml. It's installed via requirements.txt on Render.", "warning")
-    if request.method == "POST":
-        s = SessionLocal()
-        f = request.files.get("kml")
-        if not f or not f.filename.lower().endswith((".kml",".kmz")):
-            flash("Please upload a .kml or .kmz file", "warning")
-            return redirect(url_for("import_kml"))
-        data = f.read()
-        if f.filename.lower().endswith(".kmz"):
-            from zipfile import ZipFile as _ZipFile
-            from io import BytesIO as _BytesIO
-            with _ZipFile(_BytesIO(data)) as z:
-                for name in z.namelist():
-                    if name.lower().endswith(".kml"):
-                        data = z.read(name); break
-        try:
-            root = etree.fromstring(data)
-            ns = {"kml": "http://www.opengis.net/kml/2.2"}
-            placemarks = root.findall(".//kml:Placemark", ns)
-            cust_name = request.form.get("customer","Imported")
-            s_c = s.execute(select(Customer).where(Customer.name==cust_name)).scalar_one_or_none()
-            if not s_c:
-                s_c = Customer(name=cust_name); s.add(s_c); s.commit()
-            added = 0
-            for pm in placemarks:
-                name_el = pm.find("kml:name", ns)
-                coords_el = pm.find(".//kml:coordinates", ns)
-                if coords_el is None: continue
-                parts = coords_el.text.strip().split(",")
-                if len(parts) < 2: continue
-                lng, lat = float(parts[0]), float(parts[1])
-                site_name = name_el.text.strip() if name_el is not None else f"Imported {added+1}"
-                s.add(Site(name=site_name, customer_id=s_c.id, latitude=lat, longitude=lng)); added += 1
-            s.commit()
-            flash(f"Imported {added} pins into '{s_c.name}'", "success")
-            return redirect(url_for("index"))
-        except Exception as e:
-            flash(f"Import failed: {e}", "danger")
-    body = """
-    <h2>Import KML/KMZ</h2>
-    <form method="post" enctype="multipart/form-data">
-      <label>Customer name to import into</label><input name="customer" value="Imported">
-      <label>Choose .kml or .kmz file</label><input type="file" name="kml" accept=".kml,.kmz">
-      <div style="margin-top:10px"><button class="btn">Import</button></div>
-    </form>
-    """
-    return page(body)
-
-# ---------------- API ----------------
-@app.get("/api/customers/<int:cust_id>/sites")
-@login_required
-def api_sites_for_customer(cust_id):
-    s = SessionLocal()
-    sites = s.execute(
-        select(Site).where(Site.customer_id==cust_id, Site.deleted==0).order_by(Site.name.asc())
-    ).scalars().all()
-    return jsonify([{"id":x.id, "name":x.name} for x in sites])
-
-# ---------------- Run local ----------------
+# -------------------- Local run --------------------
 if __name__ == "__main__":
-    Base.metadata.create_all(bind=engine)
-    port = int(os.environ.get("PORT", 5000))  # works on Replit/Render
-    app.run(debug=True, host="0.0.0.0", port=port)
-
-@app.get("/_diag")
-def _diag():
-    return {
-        "DATA_DIR_env": os.environ.get("DATA_DIR"),
-        "DATA_DIR_used": DATA_DIR,
-        "BASE_DIR": BASE_DIR,
-        "exists": os.path.exists(DATA_DIR),
-        "writable": os.access(DATA_DIR, os.W_OK),
-    }, 200
-@app.get("/admin/ensure_schema")
-def ensure_schema():
-    Base.metadata.create_all(bind=engine)
-    return "schema ok"
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
-
-# =========================
-# STABLE FOOTER — paste at end of app.py
-# =========================
-
-# 1) Health check (Render will show 200 if app is alive)
-@app.get("/health")
-def _health():
-    return "ok", 200
-
-# 2) Manual schema creator (visit once if needed)
-@app.get("/admin/ensure_schema")
-def ensure_schema():
-    try:
-        Base.metadata.create_all(bind=engine)
-        return "schema ok", 200
-    except Exception as e:
-        app.logger.exception("Schema creation failed")
-        return f"schema error: {e}", 500
-
-# 3) Auto-create schema when the first request hits (works under Gunicorn)
-# --- ensure DB schema exists even under Gunicorn ---
-def _init_db_once():
     try:
         Base.metadata.create_all(bind=engine)
     except Exception as e:
-        app.logger.error(f"DB init failed: {e}")
-
-# Call immediately at startup
-_init_db_once()
-
-
-# 4) Tiny diagnostics (optional; helpful to verify DATA_DIR is writable)
-@app.get("/_diag")
-def _diag():
-    import os
-    return {
-        "DATA_DIR_env": os.environ.get("DATA_DIR"),
-        "DATA_DIR_used": DATA_DIR,
-        "exists": os.path.exists(DATA_DIR),
-        "writable": os.access(DATA_DIR, os.W_OK),
-    }, 200
-
-# 5) Local run (Render ignores this, but good for dev)
-if __name__ == "__main__":
-    # Make sure schema exists for local runs too
-    try:
-        Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        app.logger.exception("Local schema creation failed")
-
+        print(f"[local schema] failed: {e}")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
 
